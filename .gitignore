@@ -1,0 +1,28 @@
+# Xcode
+*.xcuserstate
+xcuserdata/
+*.xccheckout
+*.moved-aside
+DerivedData/
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Xcode workspace
+*.xcworkspace/xcuserdata/
+*.xcworkspace/xcshareddata/
+
+# Build
+build/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Packages
+.build/
+
+# Claude
+.claude/
