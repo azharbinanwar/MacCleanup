@@ -13,12 +13,15 @@ struct CleanerGroup: Identifiable {
         CleanerGroup(
             id: "developer", name: "Developer", icon: "hammer.fill", color: .blue,
             categoryNames: [
-                "Xcode DerivedData", "Xcode Archives", "Xcode iOS Device Support",
+                "Xcode DerivedData", "Xcode Archives", "Xcode iOS Device Support", "Xcode Cache",
                 "Gradle Caches", "CocoaPods Cache", "Carthage Artifacts",
                 "npm Cache", "Yarn Cache", "pnpm Store",
                 "Flutter pub-cache", "FVM SDK Cache",
+                "nvm Cache", "sdkman Archives", "asdf Downloads", "pyenv Cache",
                 "Ruby Gems Cache", "Python pip Cache",
                 "Maven Local Repo", "Cargo Registry Cache", "Go Module Cache",
+                "Swift Package Manager", "Deno Cache", "Bun Cache",
+                "Composer Cache", "Helm Cache", "Terraform Plugin Cache",
                 "Android AVD", "Android Cache",
                 "JetBrains Caches", "VS Code Cache"
             ]
@@ -26,14 +29,17 @@ struct CleanerGroup: Identifiable {
         CleanerGroup(
             id: "apps", name: "Apps", icon: "square.grid.2x2.fill", color: .purple,
             categoryNames: [
-                "Chrome Cache", "Slack Cache", "Spotify Cache", "Figma Cache", "Zoom Speech Cache"
+                "Chrome Cache", "Arc Cache", "Brave Cache", "Firefox Cache",
+                "Slack Cache", "Discord Cache", "Spotify Cache", "Figma Cache", "Zoom Speech Cache"
             ]
         ),
         CleanerGroup(
             id: "system", name: "System", icon: "gearshape.fill", color: .orange,
             categoryNames: [
                 "Library/Caches (All Apps)", "Homebrew Cache", "QuickLook Thumbnails",
-                "Mail Attachments Cache", "iOS Backups", "Trash", "Wallpaper Aerials"
+                "Mail Attachments Cache", "iOS Backups", "Trash", "Wallpaper Aerials",
+                "Safari Cache", "Music Cache", "App Store Cache",
+                "Translation Cache", "Game Center Cache"
             ]
         ),
         CleanerGroup(
@@ -320,6 +326,7 @@ struct CategoryPanel: View {
     var manager: CleanupManager
     let group: CleanerGroup
     @Binding var selectedIDs: Set<UUID>
+    @State private var sortLargest = true
 
     var categories: [CleanupCategory] {
         group.categoryNames.compactMap { name in
@@ -332,7 +339,8 @@ struct CategoryPanel: View {
     }
 
     var foundCategories: [CleanupCategory] {
-        categories.filter { $0.sizeBytes > 0 || $0.shellCommand != nil }
+        let items = categories.filter { $0.sizeBytes > 0 || $0.shellCommand != nil }
+        return items.sorted { sortLargest ? $0.sizeBytes > $1.sizeBytes : $0.sizeBytes < $1.sizeBytes }
     }
 
     var emptyCategories: [CleanupCategory] {
@@ -372,6 +380,7 @@ struct CategoryPanel: View {
                     }
                 }
                 .animation(.easeInOut(duration: 0.3), value: foundCategories.map { $0.id })
+                .animation(.easeInOut(duration: 0.2), value: sortLargest)
             }
         }
     }
@@ -380,6 +389,14 @@ struct CategoryPanel: View {
         HStack {
             Text(group.name).font(.headline)
             Spacer()
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { sortLargest.toggle() }
+            } label: {
+                Label(sortLargest ? "Largest" : "Smallest", systemImage: sortLargest ? "arrow.down" : "arrow.up")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
             Menu {
                 Button {
                     selectedIDs.formUnion(foundCategories.map { $0.id })

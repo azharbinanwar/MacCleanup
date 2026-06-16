@@ -31,7 +31,7 @@ enum Tool: String, CaseIterable, Identifiable {
     var subtitle: String {
         switch self {
         case .home:        "Overview & stats"
-        case .cleaner:     "27 categories"
+        case .cleaner:     "\(CleanupCategory.all.count) categories"
         case .largeFinder: "Files over 100 MB"
         case .uninstaller: "Apps & leftovers"
         }
