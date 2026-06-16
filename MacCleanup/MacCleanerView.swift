@@ -15,7 +15,11 @@ struct CleanerGroup: Identifiable {
             categoryNames: [
                 "Xcode DerivedData", "Xcode Archives", "Xcode iOS Device Support",
                 "Gradle Caches", "CocoaPods Cache", "Carthage Artifacts",
-                "npm Cache", "Flutter pub-cache", "Ruby Gems Cache", "Python pip Cache",
+                "npm Cache", "Yarn Cache", "pnpm Store",
+                "Flutter pub-cache", "FVM SDK Cache",
+                "Ruby Gems Cache", "Python pip Cache",
+                "Maven Local Repo", "Cargo Registry Cache", "Go Module Cache",
+                "Android AVD", "Android Cache",
                 "JetBrains Caches", "VS Code Cache"
             ]
         ),
@@ -57,8 +61,16 @@ struct MacCleanerView: View {
         manager.categories.reduce(0) { $0 + $1.sizeBytes }
     }
 
+    var allGroupsFileCount: Int {
+        manager.categories.reduce(0) { $0 + $1.fileCount }
+    }
+
     var selectedTotal: Int64 {
         manager.categories.filter { selectedIDs.contains($0.id) }.reduce(0) { $0 + $1.sizeBytes }
+    }
+
+    var selectedFileCount: Int {
+        manager.categories.filter { selectedIDs.contains($0.id) }.reduce(0) { $0 + $1.fileCount }
     }
 
     var body: some View {
@@ -84,6 +96,8 @@ struct MacCleanerView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
+            let hasData = manager.categories.contains { $0.sizeBytes > 0 }
+            guard !hasData && !manager.isScanning else { return }
             Task { await manager.scanAll() }
         }
         .sheet(item: $confirmPayload) { payload in
@@ -110,12 +124,11 @@ struct MacCleanerView: View {
                 manager.categories = CleanupCategory.all
                 Task { await manager.scanAll() }
             } label: {
-                Image(systemName: "arrow.clockwise").font(.title3)
+                Label("Scan Again", systemImage: "arrow.clockwise")
+                    .font(.system(size: 13, weight: .medium))
             }
-            .buttonStyle(.plain)
-            .foregroundColor(.secondary)
+            .buttonStyle(.bordered)
             .disabled(manager.isScanning)
-            .help("Re-scan")
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 14)
@@ -129,7 +142,7 @@ struct MacCleanerView: View {
                 ProgressView().scaleEffect(0.7)
                 Spacer()
             } else if selectedIDs.isEmpty {
-                Text("Found: **\(allGroupsTotal.formattedSize)**").font(.subheadline)
+                Text("Found: **\(allGroupsTotal.formattedSize)** · \(allGroupsFileCount.formatted()) files").font(.subheadline)
                 Spacer()
                 Button("Select All") {
                     let ids = manager.categories
@@ -152,7 +165,7 @@ struct MacCleanerView: View {
                     .buttonStyle(.plain)
                     .foregroundColor(.secondary)
                 Spacer()
-                Text("\(selectedIDs.count) selected · \(selectedTotal.formattedSize)")
+                Text("\(selectedIDs.count) selected · \(selectedTotal.formattedSize) · \(selectedFileCount.formatted()) files")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                 Spacer()
@@ -209,6 +222,12 @@ struct GroupRow: View {
             .reduce(0) { $0 + $1.sizeBytes }
     }
 
+    var groupFileCount: Int {
+        manager.categories
+            .filter { group.categoryNames.contains($0.name) }
+            .reduce(0) { $0 + $1.fileCount }
+    }
+
     var fraction: Double {
         guard allGroupsTotal > 0 else { return 0 }
         return min(1.0, Double(groupTotal) / Double(allGroupsTotal))
@@ -233,9 +252,18 @@ struct GroupRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(group.name)
                     .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
-                Text(groupTotal > 0 ? groupTotal.formattedSize : "—")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
+                if groupTotal > 0 {
+                    Text(groupTotal.formattedSize)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                    Text("\(groupFileCount.formatted()) files")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary.opacity(0.7))
+                } else {
+                    Text("—")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
             }
 
             Spacer()
@@ -329,6 +357,7 @@ struct CategoryPanel: View {
                             sectionHeader("Ready to Clean — \(foundCategories.count) items")
                             ForEach(foundCategories) { cat in
                                 categoryRow(cat)
+                                    .transition(.move(edge: .top).combined(with: .opacity))
                                 Divider().padding(.leading, 52)
                             }
                         }
@@ -336,11 +365,13 @@ struct CategoryPanel: View {
                             sectionHeader("Nothing Found — \(emptyCategories.count) items")
                             ForEach(emptyCategories) { cat in
                                 categoryRow(cat)
+                                    .transition(.opacity)
                                 Divider().padding(.leading, 52)
                             }
                         }
                     }
                 }
+                .animation(.easeInOut(duration: 0.3), value: foundCategories.map { $0.id })
             }
         }
     }
@@ -422,7 +453,7 @@ struct CategoryPanel: View {
                             .font(.system(size: 13))
                             .foregroundColor(isCleanable ? .primary : .secondary)
                         if let h = history {
-                            Text("Cleaned \(h.totalCleanCount)x · freed \(h.lastFreedBytes.formattedSize)")
+                            Text("Cleaned \(h.totalCleanCount)x · \(h.lastCleaned.relativeString) · freed \(h.lastFreedBytes.formattedSize)")
                                 .font(.caption2)
                                 .foregroundColor(.accentColor.opacity(0.7))
                         }
@@ -431,25 +462,33 @@ struct CategoryPanel: View {
                     Spacer()
 
                     if isScanning {
-                        ProgressView().scaleEffect(0.65).frame(width: 56)
+                        ProgressView().scaleEffect(0.65).frame(width: 64)
                     } else {
-                        Text(cat.sizeBytes > 0
-                             ? cat.sizeBytes.formattedSize
-                             : cat.shellCommand != nil ? "cmd" : "—")
-                            .foregroundColor(
-                                cat.sizeBytes > 0 ? .primary
-                                : cat.shellCommand != nil ? .accentColor.opacity(0.8)
-                                : .secondary.opacity(0.3)
-                            )
-                            .font(cat.shellCommand != nil && cat.sizeBytes == 0
-                                  ? .caption.bold()
-                                  : .callout.monospacedDigit())
-                            .frame(width: 56, alignment: .trailing)
+                        VStack(alignment: .trailing, spacing: 1) {
+                            Text(cat.sizeBytes > 0
+                                 ? cat.sizeBytes.formattedSize
+                                 : cat.shellCommand != nil ? "cmd" : "—")
+                                .foregroundColor(
+                                    cat.sizeBytes > 0 ? .primary
+                                    : cat.shellCommand != nil ? .accentColor.opacity(0.8)
+                                    : .secondary.opacity(0.3)
+                                )
+                                .font(cat.shellCommand != nil && cat.sizeBytes == 0
+                                      ? .caption.bold()
+                                      : .callout.monospacedDigit())
+                            if cat.fileCount > 0 {
+                                Text("\(cat.fileCount.formatted()) files")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.secondary.opacity(0.6))
+                            }
+                        }
+                        .frame(width: 64, alignment: .trailing)
                     }
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
             }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
@@ -482,18 +521,32 @@ struct ConfirmSheet: View {
             .padding(20)
             Divider()
             ScrollView {
-                LazyVStack(spacing: 0) {
+                VStack(spacing: 0) {
                     ForEach(items) { cat in
                         HStack(spacing: 12) {
-                            Image(systemName: cat.icon).frame(width: 22).foregroundColor(.accentColor)
-                            Text(cat.name)
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 7)
+                                    .fill(Color.accentColor.opacity(0.1))
+                                    .frame(width: 32, height: 32)
+                                Image(systemName: cat.icon)
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(.accentColor)
+                            }
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(cat.name).font(.system(size: 13))
+                                if cat.fileCount > 0 {
+                                    Text("\(cat.fileCount.formatted()) files")
+                                        .font(.caption2).foregroundColor(.secondary)
+                                }
+                            }
                             Spacer()
                             Text(cat.sizeBytes > 0 ? cat.sizeBytes.formattedSize : "—")
-                                .foregroundColor(.secondary).monospacedDigit()
+                                .font(.callout.monospacedDigit())
+                                .foregroundColor(.secondary)
                         }
                         .padding(.horizontal, 20)
-                        .padding(.vertical, 9)
-                        Divider().padding(.leading, 54)
+                        .padding(.vertical, 10)
+                        Divider().padding(.leading, 64)
                     }
                 }
             }

@@ -15,30 +15,50 @@ class CleanupManager {
         for i in categories.indices {
             scanningIndex = i
             let cat = categories[i]
-            categories[i].sizeBytes = await Task.detached(priority: .userInitiated) {
+            let result = await Task.detached(priority: .userInitiated) {
                 Self.calculateSize(for: cat)
             }.value
+            categories[i].sizeBytes = result.0
+            categories[i].fileCount = result.1
         }
         scanningIndex = nil
         isScanning = false
     }
 
-    private static nonisolated func calculateSize(for category: CleanupCategory) -> Int64 {
-        var total: Int64 = 0
+    private static nonisolated func resolvedPaths(for category: CleanupCategory) -> [String] {
         let fm = FileManager.default
+        var result: [String] = []
         for rawPath in category.paths {
-            let path = (rawPath as NSString).expandingTildeInPath
+            let base = (rawPath as NSString).expandingTildeInPath
+            if let sub = category.subpath {
+                let children = (try? fm.contentsOfDirectory(atPath: base)) ?? []
+                for child in children {
+                    result.append(URL(fileURLWithPath: base).appendingPathComponent(child).appendingPathComponent(sub).path)
+                }
+            } else {
+                result.append(base)
+            }
+        }
+        return result
+    }
+
+    private static nonisolated func calculateSize(for category: CleanupCategory) -> (Int64, Int) {
+        var total: Int64 = 0
+        var count: Int = 0
+        let fm = FileManager.default
+        for path in resolvedPaths(for: category) {
             guard let enumerator = fm.enumerator(
                 at: URL(fileURLWithPath: path),
-                includingPropertiesForKeys: [.fileSizeKey],
+                includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey],
                 options: [.skipsHiddenFiles]
             ) else { continue }
             for case let url as URL in enumerator {
-                let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
-                total += Int64(size)
+                let vals = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+                total += Int64(vals?.fileSize ?? 0)
+                if vals?.isRegularFile == true { count += 1 }
             }
         }
-        return total
+        return (total, count)
     }
 
     func clean(category: CleanupCategory) async -> Int64 {
@@ -48,7 +68,9 @@ class CleanupManager {
         totalFreedBytes += freed
         if let i = categories.firstIndex(where: { $0.id == category.id }) {
             categories[i].cleaned = true
+            categories[i].freedBytes = freed
             categories[i].sizeBytes = 0
+            categories[i].fileCount = 0
         }
         CleanHistory.shared.save(name: category.name, freed: freed)
         return freed
@@ -66,8 +88,7 @@ class CleanupManager {
             proc.waitUntilExit()
         }
 
-        for rawPath in category.paths {
-            let path = (rawPath as NSString).expandingTildeInPath
+        for path in resolvedPaths(for: category) {
             let url = URL(fileURLWithPath: path)
             guard fm.fileExists(atPath: path) else { continue }
             if let enumerator = fm.enumerator(
