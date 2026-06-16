@@ -1,15 +1,79 @@
 import SwiftUI
 
+// MARK: - Tool
+
+enum Tool: String, CaseIterable, Identifiable {
+    case home         = "Dashboard"
+    case cleaner      = "Mac Cleaner"
+    case largeFinder  = "Large File Finder"
+    case uninstaller  = "App Uninstaller"
+
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .home:        "house.fill"
+        case .cleaner:     "trash.fill"
+        case .largeFinder: "doc.text.magnifyingglass"
+        case .uninstaller: "minus.circle.fill"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .home:        .blue
+        case .cleaner:     .accentColor
+        case .largeFinder: .orange
+        case .uninstaller: .red
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .home:        "Overview & stats"
+        case .cleaner:     "27 categories"
+        case .largeFinder: "Files over 100 MB"
+        case .uninstaller: "Apps & leftovers"
+        }
+    }
+
+    var available: Bool { self == .cleaner || self == .home }
+}
+
+// MARK: - Root
+
 struct ContentView: View {
     @State private var manager = CleanupManager()
     @State private var screen: Screen = .scan
+    @State private var selectedTool: Tool = .home
 
     enum Screen { case scan, cleanAll, done }
 
     var body: some View {
+        NavigationSplitView(columnVisibility: .constant(.all)) {
+            List(Tool.allCases, selection: $selectedTool) { tool in
+                ToolSidebarRow(tool: tool)
+                    .tag(tool)
+                    .opacity(tool.available ? 1.0 : 0.5)
+            }
+            .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(220)
+            .navigationTitle("MacDevKit")
+        } detail: {
+            switch selectedTool {
+            case .home:    DashboardView(manager: manager, onSelectTool: { selectedTool = $0 })
+            case .cleaner: cleanerView
+            default:       ComingSoonView(tool: selectedTool)
+            }
+        }
+        .frame(minWidth: 900, minHeight: 620)
+    }
+
+    @ViewBuilder
+    private var cleanerView: some View {
         switch screen {
         case .scan:
-            ScanView(manager: manager, onClean: { screen = .cleanAll })
+            MacCleanerView(manager: manager, onClean: { screen = .cleanAll })
         case .cleanAll:
             CleanAllView(manager: manager, onDone: { screen = .done })
         case .done:
@@ -22,331 +86,169 @@ struct ContentView: View {
     }
 }
 
-// MARK: - Screen 1: Scan + Choose
+// MARK: - Sidebar Row
 
-struct ScanView: View {
+struct ToolSidebarRow: View {
+    let tool: Tool
+    var body: some View {
+        HStack(spacing: 10) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(tool.color)
+                    .frame(width: 30, height: 30)
+                Image(systemName: tool.icon)
+                    .foregroundColor(.white)
+                    .font(.system(size: 14, weight: .semibold))
+            }
+            VStack(alignment: .leading, spacing: 1) {
+                Text(tool.rawValue)
+                    .font(.system(size: 13, weight: .medium))
+                Text(tool.subtitle)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.vertical, 3)
+    }
+}
+
+// MARK: - Dashboard
+
+struct DashboardView: View {
     var manager: CleanupManager
-    let onClean: () -> Void
-
+    let onSelectTool: (Tool) -> Void
     @State private var storageInfo = StorageInfo.load()
-    @State private var chooseMode = false
-    @State private var selected: Set<UUID> = []
-    @State private var confirmPayload: ConfirmPayload? = nil
-    @State private var sortAscending = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            StorageBarView(info: storageInfo)
-            Divider()
-            listView
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                Text("Dashboard")
+                    .font(.largeTitle.bold())
+                DiskRingView(info: storageInfo)
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Tools")
+                        .font(.title3.bold())
+                    LazyVGrid(
+                        columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())],
+                        spacing: 14
+                    ) {
+                        ForEach(Tool.allCases.filter { $0 != .home }) { tool in
+                            ToolCard(tool: tool) { onSelectTool(tool) }
+                        }
+                    }
+                }
+            }
+            .padding(28)
         }
-        .frame(width: 560, height: 560)
         .background(Color(nsColor: .windowBackgroundColor))
-        .onAppear {
-            Task { await manager.scanAll() }
-        }
-        .sheet(item: $confirmPayload) { payload in
-            ConfirmSheet(items: payload.items, onCancel: {
-                confirmPayload = nil
-            }, onConfirm: {
-                confirmPayload = nil
-                manager.selectedIDs = Set(payload.items.map { $0.id })
-                onClean()
-                storageInfo = StorageInfo.load()
-            })
-        }
-    }
-
-    var header: some View {
-        HStack {
-            Image(systemName: "trash.circle.fill")
-                .font(.title)
-                .foregroundColor(.accentColor)
-            Text("Mac Cleanup")
-                .font(.title2.bold())
-            Spacer()
-            Button {
-                manager.categories = CleanupCategory.all
-                chooseMode = false
-                selected = []
-                Task { await manager.scanAll() }
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.title3)
-            }
-            .buttonStyle(.plain)
-            .foregroundColor(.secondary)
-            .disabled(manager.isScanning)
-            .help("Re-scan")
-        }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 16)
-        .background(Color(nsColor: .controlBackgroundColor))
-    }
-
-    var listView: some View {
-        VStack(spacing: 0) {
-            // toolbar: select-all (choose mode) or sort button
-            HStack {
-                if chooseMode {
-                    let allSelected = selected.count == nonEmpty.count
-                    Button(allSelected ? "Deselect All" : "Select All") {
-                        selected = allSelected ? [] : Set(nonEmpty.map { $0.id })
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundColor(.accentColor)
-                    Spacer()
-                    Text("\(selected.count) selected")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                } else {
-                    Spacer()
-                    Button {
-                        sortAscending.toggle()
-                    } label: {
-                        Label(sortAscending ? "Smallest First" : "Largest First",
-                              systemImage: sortAscending ? "arrow.up" : "arrow.down")
-                            .font(.subheadline)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundColor(.accentColor)
-                    .disabled(manager.isScanning)
-                }
-            }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 8)
-            Divider()
-
-            ScrollView {
-                LazyVStack(spacing: 0, pinnedViews: .sectionHeaders) {
-                    if manager.isScanning {
-                        ForEach(manager.categories) { cat in
-                            categoryRow(cat)
-                            Divider().padding(.leading, 56)
-                        }
-                    } else {
-                        // Group 1: Found — sorted, real sizes only
-                        if !nonEmpty.isEmpty {
-                            Section {
-                                ForEach(nonEmpty) { cat in
-                                    categoryRow(cat)
-                                    Divider().padding(.leading, 56)
-                                }
-                            } header: {
-                                sectionHeader("Found — \(nonEmpty.count) items")
-                            }
-                        }
-                        // Group 2: Commands
-                        if !commandOnly.isEmpty {
-                            Section {
-                                ForEach(commandOnly) { cat in
-                                    categoryRow(cat)
-                                    Divider().padding(.leading, 56)
-                                }
-                            } header: {
-                                sectionHeader("Commands — size unknown until cleaned")
-                            }
-                        }
-                        // Group 3: Nothing to Clean
-                        if !emptyCategories.isEmpty {
-                            Section {
-                                ForEach(emptyCategories) { cat in
-                                    categoryRow(cat)
-                                    Divider().padding(.leading, 56)
-                                }
-                            } header: {
-                                sectionHeader("Nothing to Clean — \(emptyCategories.count) items")
-                            }
-                        }
-                    }
-                }
-                .id("\(sortAscending)-\(manager.isScanning)")
-            }
-
-            Divider()
-            HStack {
-                if manager.isScanning {
-                    Text("Total:").font(.headline)
-                    ProgressView().scaleEffect(0.7)
-                } else {
-                    let total = nonEmpty.reduce(0) { $0 + $1.sizeBytes }
-                    Text("Total: **\(total.formattedSize)**").font(.headline)
-                }
-                Spacer()
-                if chooseMode {
-                    Button("Cancel") { chooseMode = false; selected = [] }
-                        .buttonStyle(.bordered)
-                        .controlSize(.large)
-                    Button("Clean Selected (\(selected.count))") {
-                        confirmPayload = ConfirmPayload(items: nonEmpty.filter { selected.contains($0.id) })
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .disabled(selected.isEmpty)
-                } else {
-                    Button("Choose") {
-                        chooseMode = true
-                        selected = []
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                    .disabled(manager.isScanning)
-                    Button("Clean All") {
-                        confirmPayload = ConfirmPayload(items: nonEmpty + commandOnly)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .disabled(manager.isScanning || nonEmpty.isEmpty)
-                }
-            }
-            .padding(20)
-        }
-    }
-
-    func categoryRow(_ cat: CleanupCategory) -> some View {
-        let isScanning = manager.scanningIndex == manager.categories.firstIndex(where: { $0.id == cat.id })
-        let isEmpty = cat.sizeBytes == 0 && !isScanning
-        let history = CleanHistory.shared.record(for: cat.name)
-
-        return HStack(spacing: 12) {
-            if chooseMode {
-                if cat.sizeBytes > 0 {
-                    Image(systemName: selected.contains(cat.id) ? "checkmark.circle.fill" : "circle")
-                        .foregroundColor(selected.contains(cat.id) ? .accentColor : .secondary)
-                        .font(.title3)
-                } else {
-                    Spacer().frame(width: 22)
-                }
-            }
-            Image(systemName: cat.icon)
-                .frame(width: 22)
-                .foregroundColor(isEmpty ? .secondary.opacity(0.4) : .accentColor)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(cat.name)
-                    .foregroundColor(isEmpty ? .secondary : .primary)
-                if let h = history {
-                    Text("Last cleaned \(h.lastCleaned.relativeString) · \(h.totalCleanCount)x · freed \(h.lastFreedBytes.formattedSize)")
-                        .font(.caption2)
-                        .foregroundColor(.accentColor.opacity(0.8))
-                }
-            }
-            Spacer()
-            if isScanning {
-                ProgressView().scaleEffect(0.7).frame(width: 60)
-            } else {
-                Text(cat.sizeBytes > 0 ? cat.sizeBytes.formattedSize : cat.shellCommand != nil ? "cmd" : "—")
-                    .foregroundColor(cat.sizeBytes > 0 ? .primary : cat.shellCommand != nil ? .accentColor : .secondary.opacity(0.4))
-                    .font(cat.shellCommand != nil && cat.sizeBytes == 0 ? .caption.bold() : .body)
-                    .monospacedDigit()
-                    .frame(width: 60, alignment: .trailing)
-            }
-        }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 8)
-        .contentShape(Rectangle())
-        .onTapGesture { if chooseMode && cat.sizeBytes > 0 { toggle(cat.id) } }
-    }
-
-    func sectionHeader(_ title: String) -> some View {
-        HStack {
-            Text(title)
-                .font(.caption.bold())
-                .foregroundColor(.secondary)
-            Spacer()
-        }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 6)
-        .background(Color(nsColor: .controlBackgroundColor))
-    }
-
-    var nonEmpty: [CleanupCategory] {
-        let items = manager.categories.filter { $0.sizeBytes > 0 }
-        return sortAscending ? items.sorted { $0.sizeBytes < $1.sizeBytes } : items.sorted { $0.sizeBytes > $1.sizeBytes }
-    }
-
-    var commandOnly: [CleanupCategory] {
-        manager.categories.filter { $0.shellCommand != nil && $0.sizeBytes == 0 }
-    }
-
-    var emptyCategories: [CleanupCategory] {
-        manager.categories.filter { $0.sizeBytes == 0 && $0.shellCommand == nil }
-    }
-
-    private func toggle(_ id: UUID) {
-        if selected.contains(id) { selected.remove(id) } else { selected.insert(id) }
     }
 }
 
-struct ConfirmPayload: Identifiable {
-    let id = UUID()
-    let items: [CleanupCategory]
-}
+// MARK: - Disk Ring
 
-// MARK: - Confirmation Sheet
+struct DiskRingView: View {
+    let info: StorageInfo
 
-struct ConfirmSheet: View {
-    let items: [CleanupCategory]
-    let onCancel: () -> Void
-    let onConfirm: () -> Void
-
-    var totalSize: Int64 { items.reduce(0) { $0 + $1.sizeBytes } }
+    var ringColor: Color {
+        info.usedFraction > 0.9 ? .red : info.usedFraction > 0.75 ? .orange : .accentColor
+    }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Image(systemName: "trash.fill")
-                    .foregroundColor(.red)
-                Text("Confirm Cleanup")
-                    .font(.title3.bold())
-                Spacer()
-            }
-            .padding(20)
-
-            Divider()
-
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(items) { cat in
-                        HStack(spacing: 12) {
-                            Image(systemName: cat.icon)
-                                .frame(width: 22)
-                                .foregroundColor(.accentColor)
-                            Text(cat.name)
-                            Spacer()
-                            Text(cat.sizeBytes > 0 ? cat.sizeBytes.formattedSize : "—")
-                                .foregroundColor(.secondary)
-                                .monospacedDigit()
-                        }
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 9)
-                        Divider().padding(.leading, 54)
-                    }
-                }
-            }
-
-            Divider()
-
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Total to free")
+        HStack(spacing: 36) {
+            ZStack {
+                Circle()
+                    .stroke(Color.secondary.opacity(0.12), lineWidth: 14)
+                Circle()
+                    .trim(from: 0, to: CGFloat(info.usedFraction))
+                    .stroke(ringColor, style: StrokeStyle(lineWidth: 14, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .animation(.easeInOut(duration: 1.0), value: info.usedFraction)
+                VStack(spacing: 0) {
+                    Text("\(Int(info.usedFraction * 100))%")
+                        .font(.system(size: 26, weight: .bold, design: .rounded))
+                    Text("used")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    Text(totalSize.formattedSize)
-                        .font(.headline)
                 }
-                Spacer()
-                Button("Cancel", action: onCancel)
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                Button("Delete Now") { onConfirm() }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.red)
-                    .controlSize(.large)
             }
-            .padding(20)
+            .frame(width: 110, height: 110)
+            VStack(alignment: .leading, spacing: 10) {
+                diskStat(label: "Used",  value: info.used.formattedSize,  color: ringColor)
+                diskStat(label: "Free",  value: info.free.formattedSize,  color: .secondary)
+                diskStat(label: "Total", value: info.total.formattedSize, color: .secondary)
+            }
+            Spacer()
         }
-        .frame(width: 480, height: 400)
+        .padding(20)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .cornerRadius(14)
+    }
+
+    private func diskStat(label: String, value: String, color: Color) -> some View {
+        HStack(spacing: 8) {
+            Circle().fill(color).frame(width: 8, height: 8)
+            Text(label).font(.subheadline).foregroundColor(.secondary)
+            Text(value).font(.subheadline.bold())
+        }
+    }
+}
+
+// MARK: - Tool Card
+
+struct ToolCard: View {
+    let tool: Tool
+    let onOpen: () -> Void
+
+    var body: some View {
+        VStack(spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(tool.color.opacity(0.12))
+                    .frame(width: 60, height: 60)
+                Image(systemName: tool.icon)
+                    .font(.system(size: 28, weight: .medium))
+                    .foregroundColor(tool.color)
+            }
+            VStack(spacing: 4) {
+                Text(tool.rawValue)
+                    .font(.headline)
+                    .multilineTextAlignment(.center)
+                Text(tool.subtitle)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            Button(tool.available ? "Open" : "Coming Soon") { onOpen() }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(!tool.available)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .cornerRadius(14)
+    }
+}
+
+// MARK: - Coming Soon
+
+struct ComingSoonView: View {
+    let tool: Tool
+    var body: some View {
+        VStack(spacing: 16) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(tool.color.opacity(0.1))
+                    .frame(width: 80, height: 80)
+                Image(systemName: tool.icon)
+                    .font(.system(size: 36, weight: .medium))
+                    .foregroundColor(tool.color.opacity(0.6))
+            }
+            Text(tool.rawValue).font(.title2.bold())
+            Text("Coming Soon").foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 }
 
@@ -384,7 +286,7 @@ struct CleanAllView: View {
             }
             Spacer()
         }
-        .frame(width: 560, height: 520)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
         .task {
             let items = toClean
@@ -426,7 +328,7 @@ struct DoneView: View {
                 .controlSize(.large)
             Spacer()
         }
-        .frame(width: 560, height: 520)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 }

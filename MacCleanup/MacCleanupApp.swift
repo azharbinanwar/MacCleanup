@@ -6,7 +6,6 @@ struct MacCleanupApp: App {
         WindowGroup {
             ContentView()
         }
-        .windowResizability(.contentSize)
-        .defaultSize(width: 560, height: 520)
+        .defaultSize(width: 1000, height: 660)
     }
 }
