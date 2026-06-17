@@ -294,16 +294,13 @@ struct LargeFileView: View {
                     Button {
                         NSWorkspace.shared.activateFileViewerSelecting([file.url])
                     } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "folder.fill")
-                            Text("Show")
-                        }
-                        .font(.caption.weight(.medium))
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.secondary.opacity(0.1))
-                        .cornerRadius(6)
+                        Image(systemName: "folder.fill")
+                            .font(.caption.weight(.medium))
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.secondary.opacity(0.1))
+                            .cornerRadius(6)
                     }
                     .buttonStyle(.plain)
                 }

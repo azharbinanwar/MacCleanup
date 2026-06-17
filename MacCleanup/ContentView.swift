@@ -7,6 +7,7 @@ enum Tool: String, CaseIterable, Identifiable {
     case cleaner      = "Mac Cleaner"
     case largeFinder  = "Large File Finder"
     case uninstaller  = "App Uninstaller"
+    case duplicates   = "Duplicate Finder"
 
     var id: String { rawValue }
 
@@ -16,6 +17,7 @@ enum Tool: String, CaseIterable, Identifiable {
         case .cleaner:     "trash.fill"
         case .largeFinder: "doc.text.magnifyingglass"
         case .uninstaller: "minus.circle.fill"
+        case .duplicates:  "doc.on.doc.fill"
         }
     }
 
@@ -25,6 +27,7 @@ enum Tool: String, CaseIterable, Identifiable {
         case .cleaner:     .accentColor
         case .largeFinder: .orange
         case .uninstaller: .red
+        case .duplicates:  .purple
         }
     }
 
@@ -34,10 +37,11 @@ enum Tool: String, CaseIterable, Identifiable {
         case .cleaner:     "\(CleanupCategory.all.count) categories"
         case .largeFinder: "Find files over a size threshold"
         case .uninstaller: "Apps & leftovers"
+        case .duplicates:  "Find identical files"
         }
     }
 
-    var available: Bool { self == .cleaner || self == .home || self == .largeFinder || self == .uninstaller }
+    var available: Bool { self == .cleaner || self == .home || self == .largeFinder || self == .uninstaller || self == .duplicates }
 }
 
 // MARK: - Root
@@ -46,6 +50,7 @@ struct ContentView: View {
     @State private var manager = CleanupManager()
     @State private var largeScanner = LargeFileScanner()
     @State private var appUninstallerScanner = AppUninstallerScanner()
+    @State private var duplicateScanner = DuplicateScanner()
     @State private var screen: Screen = .scan
     @State private var selectedTool: Tool = .home
     @State private var sidebarCompact = false
@@ -76,6 +81,7 @@ struct ContentView: View {
             withAnimation(.easeInOut(duration: 0.2)) { showPermissions = true }
         })
         case .uninstaller: AppUninstallerView(scanner: appUninstallerScanner)
+        case .duplicates:  DuplicateFinderView(scanner: duplicateScanner)
         default:           ComingSoonView(tool: selectedTool)
         }
     }
