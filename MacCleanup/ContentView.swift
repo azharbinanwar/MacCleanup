@@ -58,8 +58,18 @@ struct ContentView: View {
     @State private var showSettings = false
     @State private var showPermissions = false
     @State private var requiredPermissions: [AppPermission] = []
+    @AppStorage("appTheme") private var appTheme: String = "system"
 
     enum Screen { case scan, cleanAll, done }
+
+    private var resolvedColorScheme: ColorScheme {
+        switch appTheme {
+        case "dark":  return .dark
+        case "light": return .light
+        default:
+            return NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light
+        }
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -76,6 +86,7 @@ struct ContentView: View {
             PermissionsPanel(isShowing: $showPermissions, permissions: requiredPermissions)
         }
         .frame(minWidth: 860, minHeight: 620)
+        .preferredColorScheme(resolvedColorScheme)
         .animation(.easeInOut(duration: 0.2), value: showPermissions)
     }
 

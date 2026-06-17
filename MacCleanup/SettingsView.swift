@@ -2,10 +2,10 @@ import SwiftUI
 
 struct SettingsView: View {
     let categorySettings: CategorySettings
-    @State private var selectedSection: SettingsSection = .cleaner
+    @State private var selectedSection: SettingsSection = .appearance
 
     enum SettingsSection: String, CaseIterable, Identifiable {
-        // case appearance = "Appearance"
+        case appearance = "Appearance"
         case cleaner     = "Mac Cleaner"
         case largeFiles  = "Large File Finder"
         case duplicates  = "Duplicate Finder"
@@ -15,7 +15,7 @@ struct SettingsView: View {
 
         var icon: String {
             switch self {
-            // case .appearance: return "paintbrush.fill"
+            case .appearance: "paintbrush.fill"
             case .cleaner:    "trash.fill"
             case .largeFiles: "doc.text.magnifyingglass"
             case .duplicates: "doc.on.doc.fill"
@@ -25,7 +25,7 @@ struct SettingsView: View {
 
         var color: Color {
             switch self {
-            // case .appearance: return .blue
+            case .appearance: .blue
             case .cleaner:    .accentColor
             case .largeFiles: .orange
             case .duplicates: .purple
@@ -85,7 +85,7 @@ struct SettingsView: View {
     @ViewBuilder
     private var sectionContent: some View {
         switch selectedSection {
-        // case .appearance: AppearanceSettings()
+        case .appearance: AppearanceSettings()
         case .cleaner:    CleanerSettings(categorySettings: categorySettings)
         case .largeFiles: LargeFileSettings()
         case .duplicates: DuplicateSettings()
@@ -132,7 +132,7 @@ private struct AppearanceSettings: View {
             VStack(spacing: 8) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 10)
-                        .fill(value == "dark" ? Color.black : value == "light" ? Color.white : Color(nsColor: .windowBackgroundColor))
+                        .fill(themeBackground(value))
                         .frame(width: 72, height: 52)
                         .overlay(
                             RoundedRectangle(cornerRadius: 10)
@@ -140,10 +140,10 @@ private struct AppearanceSettings: View {
                         )
                     HStack(spacing: 4) {
                         RoundedRectangle(cornerRadius: 3)
-                            .fill(value == "dark" ? Color.white.opacity(0.1) : Color.black.opacity(0.06))
+                            .fill(value == "dark" ? Color.white.opacity(0.15) : value == "light" ? Color.black.opacity(0.08) : Color.gray.opacity(0.45))
                             .frame(width: 18, height: 34)
                         RoundedRectangle(cornerRadius: 3)
-                            .fill(value == "dark" ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+                            .fill(value == "dark" ? Color.white.opacity(0.08) : value == "light" ? Color.black.opacity(0.04) : Color.gray.opacity(0.25))
                             .frame(width: 40, height: 34)
                     }
                 }
@@ -153,6 +153,22 @@ private struct AppearanceSettings: View {
             }
         }
         .buttonStyle(.plain)
+    }
+
+    private func themeBackground(_ value: String) -> AnyShapeStyle {
+        switch value {
+        case "dark":  return AnyShapeStyle(Color.black)
+        case "light": return AnyShapeStyle(Color.white)
+        default:
+            return AnyShapeStyle(LinearGradient(
+                stops: [
+                    .init(color: Color.black, location: 0.499),
+                    .init(color: Color.white, location: 0.501)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            ))
+        }
     }
 }
 
