@@ -34,7 +34,7 @@ enum Tool: String, CaseIterable, Identifiable {
     var subtitle: String {
         switch self {
         case .home:        "Overview & stats"
-        case .cleaner:     "\(CleanupCategory.all.count) categories"
+        case .cleaner:     "categories"
         case .largeFinder: "Find files over a size threshold"
         case .uninstaller: "Apps & leftovers"
         case .duplicates:  "Find identical files"
@@ -53,7 +53,9 @@ struct ContentView: View {
     @State private var duplicateScanner = DuplicateScanner()
     @State private var screen: Screen = .scan
     @State private var selectedTool: Tool = .home
+    @State private var categorySettings = CategorySettings()
     @State private var sidebarCompact = false
+    @State private var showSettings = false
     @State private var showPermissions = false
     @State private var requiredPermissions: [AppPermission] = []
 
@@ -61,10 +63,16 @@ struct ContentView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            SidebarView(selectedTool: $selectedTool, isCompact: $sidebarCompact)
+            SidebarView(selectedTool: $selectedTool, isCompact: $sidebarCompact, showSettings: $showSettings, categorySettings: categorySettings)
             Divider()
-            detailView
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Group {
+                if showSettings {
+                    SettingsView(categorySettings: categorySettings)
+                } else {
+                    detailView
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             PermissionsPanel(isShowing: $showPermissions, permissions: requiredPermissions)
         }
         .frame(minWidth: 860, minHeight: 620)
@@ -74,7 +82,7 @@ struct ContentView: View {
     @ViewBuilder
     private var detailView: some View {
         switch selectedTool {
-        case .home:        DashboardView(manager: manager, onSelectTool: { selectedTool = $0 })
+        case .home:        DashboardView(manager: manager, categorySettings: categorySettings, onSelectTool: { selectedTool = $0 })
         case .cleaner:     cleanerView
         case .largeFinder: LargeFileView(scanner: largeScanner, onPermissionMissing: { perms in
             requiredPermissions = perms
@@ -90,7 +98,7 @@ struct ContentView: View {
     private var cleanerView: some View {
         switch screen {
         case .scan:
-            MacCleanerView(manager: manager, onClean: { screen = .cleanAll })
+            MacCleanerView(manager: manager, categorySettings: categorySettings, onClean: { screen = .cleanAll })
         case .cleanAll:
             CleanAllView(manager: manager, onDone: { screen = .done })
         case .done:
@@ -102,7 +110,7 @@ struct ContentView: View {
                 },
                 onRescan: {
                     manager.totalFreedBytes = 0
-                    manager.categories = CleanupCategory.all
+                    manager.categories = categorySettings.enabledCategories
                     screen = .scan
                     Task { await manager.scanAll() }
                 }
@@ -116,6 +124,8 @@ struct ContentView: View {
 struct SidebarView: View {
     @Binding var selectedTool: Tool
     @Binding var isCompact: Bool
+    @Binding var showSettings: Bool
+    let categorySettings: CategorySettings
 
     var body: some View {
         VStack(spacing: 0) {
@@ -145,7 +155,8 @@ struct SidebarView: View {
 
             VStack(spacing: 2) {
                 ForEach(Tool.allCases) { tool in
-                    SidebarItem(tool: tool, isSelected: selectedTool == tool, isCompact: isCompact) {
+                    SidebarItem(tool: tool, isSelected: selectedTool == tool && !showSettings, isCompact: isCompact, enabledCategoryCount: categorySettings.enabledCount) {
+                        showSettings = false
                         selectedTool = tool
                     }
                 }
@@ -154,6 +165,32 @@ struct SidebarView: View {
             .padding(.top, 8)
 
             Spacer()
+
+            Divider()
+
+            Button {
+                showSettings = true
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: isCompact ? 16 : 14))
+                        .foregroundColor(showSettings ? .accentColor : .secondary)
+                        .frame(width: 24, height: 24)
+                    if !isCompact {
+                        Text("Settings")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(showSettings ? .accentColor : .secondary)
+                        Spacer()
+                    }
+                }
+                .padding(.horizontal, isCompact ? 0 : 8)
+                .padding(.vertical, 10)
+                .frame(maxWidth: isCompact ? .infinity : nil)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 8)
+            .padding(.bottom, 10)
         }
         .frame(width: isCompact ? 56 : 220)
         .background(Color(nsColor: .controlBackgroundColor))
@@ -165,6 +202,7 @@ struct SidebarItem: View {
     let isSelected: Bool
     let isCompact: Bool
     let onTap: () -> Void
+    var enabledCategoryCount: Int = CleanupCategory.all.count
 
     var body: some View {
         Button(action: onTap) {
@@ -198,7 +236,7 @@ struct SidebarItem: View {
                         Text(tool.rawValue)
                             .font(.system(size: 13, weight: .medium))
                             .foregroundColor(tool.available ? .primary : .secondary)
-                        Text(tool.subtitle)
+                        Text(tool == .cleaner ? "\(enabledCategoryCount) categories" : tool.subtitle)
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
@@ -222,6 +260,7 @@ struct SidebarItem: View {
 
 struct DashboardView: View {
     var manager: CleanupManager
+    let categorySettings: CategorySettings
     let onSelectTool: (Tool) -> Void
     @State private var storageInfo = StorageInfo.load()
 
@@ -273,6 +312,7 @@ struct DashboardView: View {
                     ToolRow(
                         tool: tool,
                         scanLabel: tool == .cleaner ? cleanerLabel : nil,
+                        enabledCategoryCount: categorySettings.enabledCount,
                         onOpen: { onSelectTool(tool) },
                         onScan: tool == .cleaner ? { Task { await manager.scanAll() } } : nil
                     )
@@ -374,6 +414,7 @@ struct DiskHealthCard: View {
 struct ToolRow: View {
     let tool: Tool
     var scanLabel: String? = nil
+    var enabledCategoryCount: Int = CleanupCategory.all.count
     let onOpen: () -> Void
     var onScan: (() -> Void)? = nil
     @State private var isHovered = false
@@ -396,7 +437,7 @@ struct ToolRow: View {
                     Text(tool.rawValue)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(tool.available ? .primary : .secondary)
-                    Text(tool.subtitle)
+                    Text(tool == .cleaner ? "\(enabledCategoryCount) categories" : tool.subtitle)
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }

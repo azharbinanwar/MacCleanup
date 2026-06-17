@@ -89,15 +89,7 @@ struct AppUninstallerView: View {
     // MARK: - Toolbar
 
     private var toolbar: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("App Uninstaller")
-                    .font(.title2.bold())
-                Text("Remove apps and their leftover files")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            Spacer()
+        ToolHeaderView(title: "App Uninstaller", subtitle: "Remove apps and their leftover files") {
             Button {
                 selectedAppID = nil
                 Task { await scanner.scanApps() }
@@ -108,8 +100,6 @@ struct AppUninstallerView: View {
             .buttonStyle(.borderedProminent)
             .disabled(scanner.isScanning)
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 16)
     }
 
     // MARK: - Left panel

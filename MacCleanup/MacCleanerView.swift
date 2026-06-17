@@ -57,6 +57,7 @@ struct CleanerGroup: Identifiable {
 
 struct MacCleanerView: View {
     var manager: CleanupManager
+    let categorySettings: CategorySettings
     let onClean: () -> Void
 
     @State private var selectedGroup: CleanerGroup = CleanerGroup.all[0]
@@ -86,6 +87,7 @@ struct MacCleanerView: View {
             HStack(spacing: 0) {
                 GroupPanel(
                     manager: manager,
+                    categorySettings: categorySettings,
                     selectedGroup: $selectedGroup,
                     allGroupsTotal: allGroupsTotal
                 )
@@ -102,8 +104,10 @@ struct MacCleanerView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
+            manager.categories = manager.categories.filter { categorySettings.isEnabled($0.name) }
             let hasData = manager.categories.contains { $0.sizeBytes > 0 }
             guard !hasData && !manager.isScanning else { return }
+            manager.categories = categorySettings.enabledCategories
             Task { await manager.scanAll() }
         }
         .sheet(item: $confirmPayload) { payload in
@@ -118,16 +122,10 @@ struct MacCleanerView: View {
     }
 
     private var header: some View {
-        HStack {
-            Image(systemName: "trash.circle.fill")
-                .font(.title)
-                .foregroundColor(.accentColor)
-            Text("Mac Cleaner")
-                .font(.title2.bold())
-            Spacer()
+        ToolHeaderView(title: "Mac Cleaner", subtitle: "\(categorySettings.enabledCount) categories enabled") {
             Button {
                 selectedIDs = []
-                manager.categories = CleanupCategory.all
+                manager.categories = categorySettings.enabledCategories
                 Task { await manager.scanAll() }
             } label: {
                 Label("Scan Again", systemImage: "arrow.clockwise")
@@ -136,9 +134,6 @@ struct MacCleanerView: View {
             .buttonStyle(.bordered)
             .disabled(manager.isScanning)
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 14)
-        .background(Color(nsColor: .controlBackgroundColor))
     }
 
     private var bottomBar: some View {
@@ -193,12 +188,19 @@ struct MacCleanerView: View {
 
 struct GroupPanel: View {
     var manager: CleanupManager
+    let categorySettings: CategorySettings
     @Binding var selectedGroup: CleanerGroup
     let allGroupsTotal: Int64
 
+    private var visibleGroups: [CleanerGroup] {
+        CleanerGroup.all.filter { group in
+            group.categoryNames.contains { categorySettings.isEnabled($0) }
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            ForEach(CleanerGroup.all) { group in
+            ForEach(visibleGroups) { group in
                 GroupRow(
                     group: group,
                     manager: manager,

@@ -93,15 +93,7 @@ struct DuplicateFinderView: View {
     // MARK: - Toolbar
 
     private var toolbar: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Duplicate Finder")
-                    .font(.title2.bold())
-                Text("Find and remove duplicate files")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            Spacer()
+        ToolHeaderView(title: "Duplicate Finder", subtitle: "Find and remove duplicate files") {
             HStack(spacing: 6) {
                 ForEach(ScanPreset.allCases, id: \.self) { preset in
                     Button {
@@ -121,8 +113,6 @@ struct DuplicateFinderView: View {
                 .disabled(scanner.isScanning || scanner.isCounting)
             }
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 16)
         .sheet(item: $scanWarning) { warning in
             warningSheet(warning)
         }

@@ -47,12 +47,21 @@ struct LargeFileView: View {
     @State private var hoveredID: UUID? = nil
     @State private var scanRootName: String = "Home"
 
-    private let thresholds: [(String, Int64)] = [
-        ("50 MB",  50  * 1024 * 1024),
-        ("100 MB", 100 * 1024 * 1024),
-        ("500 MB", 500 * 1024 * 1024),
-        ("1 GB",   1024 * 1024 * 1024)
+    @AppStorage("largeFileDefaultMB") private var defaultMB: Double = 100
+    @AppStorage("largeFileHiddenPresets") private var hiddenPresetsRaw: String = ""
+
+    private let allThresholds: [(String, Double, Int64)] = [
+        ("10 MB",  10,   10   * 1024 * 1024),
+        ("50 MB",  50,   50   * 1024 * 1024),
+        ("100 MB", 100,  100  * 1024 * 1024),
+        ("500 MB", 500,  500  * 1024 * 1024),
+        ("1 GB",   1024, 1024 * 1024 * 1024),
     ]
+
+    private var thresholds: [(String, Int64)] {
+        let hidden = Set(hiddenPresetsRaw.split(separator: ",").map(String.init))
+        return allThresholds.filter { !hidden.contains($0.0) }.map { ($0.0, $0.2) }
+    }
 
     var filteredFiles: [LargeFile] {
         switch filterType {
@@ -79,7 +88,7 @@ struct LargeFileView: View {
             Divider()
             if scanner.isScanning {
                 scanningView
-            } else if scanner.files.isEmpty {
+            } else if scanner.files.isEmp‹ty {
                 emptyView
             } else {
                 filterChips
@@ -102,15 +111,7 @@ struct LargeFileView: View {
     // MARK: - Toolbar
 
     private var toolbar: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Large File Finder")
-                    .font(.title2.bold())
-                Text("Find files taking up the most space")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            Spacer()
+        ToolHeaderView(title: "Large File Finder", subtitle: "Find files taking up the most space") {
             Menu {
                 ForEach(thresholds, id: \.0) { label, bytes in
                     Button {
@@ -168,8 +169,6 @@ struct LargeFileView: View {
             .buttonStyle(.borderedProminent)
             .disabled(scanner.isScanning)
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 16)
     }
 
     // MARK: - Filter chips
@@ -386,6 +385,15 @@ struct LargeFileView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            let defaultBytes = Int64(defaultMB) * 1024 * 1024
+            if scanner.threshold != defaultBytes {
+                scanner.threshold = defaultBytes
+            }
+        }
+        .onChange(of: defaultMB) { _, newMB in
+            scanner.threshold = Int64(newMB) * 1024 * 1024
+        }
     }
 
     private var emptyFilterView: some View {
