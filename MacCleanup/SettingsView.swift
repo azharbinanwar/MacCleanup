@@ -214,10 +214,6 @@ private struct LargeFileSettings: View {
     @AppStorage("largeFileDefaultMB") private var defaultMB: Double = 100
     @AppStorage("largeFileHiddenPresets") private var hiddenPresetsRaw: String = ""
 
-    private let allPresets: [(String, Double)] = [
-        ("10 MB", 10), ("50 MB", 50), ("100 MB", 100), ("500 MB", 500), ("1 GB", 1024)
-    ]
-
     private var hiddenPresets: Set<String> {
         Set(hiddenPresetsRaw.split(separator: ",").map(String.init))
     }
@@ -242,14 +238,14 @@ private struct LargeFileSettings: View {
                     .padding(.top, 16)
                     .padding(.bottom, 6)
 
-                ForEach(allPresets, id: \.0) { label, value in
-                    let isHidden = hiddenPresets.contains(label)
-                    let isDefault = defaultMB == value
+                ForEach(LargeFileScanner.allPresets, id: \.label) { preset in
+                    let isHidden = hiddenPresets.contains(preset.label)
+                    let isDefault = defaultMB == preset.mb
 
                     Divider().opacity(0.4)
                     HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(label)
+                            Text(preset.label)
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundColor(isHidden ? .secondary : .primary)
                             Text(isDefault ? "Default on open" : "Available in picker")
@@ -259,7 +255,7 @@ private struct LargeFileSettings: View {
                         Spacer()
                         if !isHidden {
                             Button {
-                                defaultMB = value
+                                defaultMB = preset.mb
                             } label: {
                                 Image(systemName: isDefault ? "checkmark.circle.fill" : "circle")
                                     .font(.system(size: 16))
@@ -270,13 +266,13 @@ private struct LargeFileSettings: View {
                         Toggle("", isOn: Binding(
                             get: { !isHidden },
                             set: { _ in
-                                let enabledCount = allPresets.filter { !hiddenPresets.contains($0.0) }.count
+                                let enabledCount = LargeFileScanner.allPresets.filter { !hiddenPresets.contains($0.label) }.count
                                 if !isHidden && enabledCount <= 1 { return }
                                 if isDefault && !isHidden {
-                                    let next = allPresets.first { $0.0 != label && !hiddenPresets.contains($0.0) }
-                                    if let next { defaultMB = next.1 }
+                                    let next = LargeFileScanner.allPresets.first { $0.label != preset.label && !hiddenPresets.contains($0.label) }
+                                    if let next { defaultMB = next.mb }
                                 }
-                                toggleHidden(label)
+                                toggleHidden(preset.label)
                             }
                         ))
                         .toggleStyle(.switch)
@@ -337,42 +333,30 @@ private struct DuplicateSettings: View {
 // MARK: - About
 
 private struct AboutSettings: View {
+    private var version: String {
+        let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        let b = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+        return "Version \(v) (\(b))"
+    }
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                settingsHeader("About").padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 12)
-                Divider().opacity(0.4)
-
-                HStack(spacing: 16) {
-                    if let appIcon = NSApp.applicationIconImage {
-                        Image(nsImage: appIcon)
-                            .resizable()
-                            .frame(width: 56, height: 56)
-                    }
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("MacDevKit")
-                            .font(.title3.bold())
-                        Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                        Text("Free & Open Source")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    Spacer()
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-
-                Divider().opacity(0.4)
-                aboutRow(label: "Developer", value: "Azhar Ali")
-                Divider().opacity(0.4)
-                aboutRow(label: "GitHub", value: "azharbinanwar")
-                Divider().opacity(0.4)
-                aboutRow(label: "Email", value: "azharbinanwar@gmail.com")
-                Divider().opacity(0.4)
+        VStack(spacing: 16) {
+            Spacer()
+            if let appIcon = NSApp.applicationIconImage {
+                Image(nsImage: appIcon)
+                    .resizable()
+                    .frame(width: 72, height: 72)
             }
+            VStack(spacing: 4) {
+                Text("MacDevKit")
+                    .font(.title2.bold())
+                Text(version)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func aboutRow(label: String, value: String) -> some View {

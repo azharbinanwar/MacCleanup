@@ -50,17 +50,9 @@ struct LargeFileView: View {
     @AppStorage("largeFileDefaultMB") private var defaultMB: Double = 100
     @AppStorage("largeFileHiddenPresets") private var hiddenPresetsRaw: String = ""
 
-    private let allThresholds: [(String, Double, Int64)] = [
-        ("10 MB",  10,   10   * 1024 * 1024),
-        ("50 MB",  50,   50   * 1024 * 1024),
-        ("100 MB", 100,  100  * 1024 * 1024),
-        ("500 MB", 500,  500  * 1024 * 1024),
-        ("1 GB",   1024, 1024 * 1024 * 1024),
-    ]
-
     private var thresholds: [(String, Int64)] {
         let hidden = Set(hiddenPresetsRaw.split(separator: ",").map(String.init))
-        return allThresholds.filter { !hidden.contains($0.0) }.map { ($0.0, $0.2) }
+        return LargeFileScanner.allPresets.filter { !hidden.contains($0.label) }.map { ($0.label, $0.bytes) }
     }
 
     var filteredFiles: [LargeFile] {

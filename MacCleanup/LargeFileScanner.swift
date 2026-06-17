@@ -17,6 +17,14 @@ struct LargeFile: Identifiable {
 @Observable
 @MainActor
 class LargeFileScanner {
+    static let allPresets: [(label: String, mb: Double, bytes: Int64)] = [
+        (label: "10 MB",  mb: 10,   bytes: 10   * 1024 * 1024),
+        (label: "50 MB",  mb: 50,   bytes: 50   * 1024 * 1024),
+        (label: "100 MB", mb: 100,  bytes: 100  * 1024 * 1024),
+        (label: "500 MB", mb: 500,  bytes: 500  * 1024 * 1024),
+        (label: "1 GB",   mb: 1024, bytes: 1024 * 1024 * 1024),
+    ]
+
     var files: [LargeFile] = []
     var isScanning = false
     var scannedCount = 0

@@ -57,6 +57,8 @@ struct DuplicateFinderView: View {
     @State private var hoveredGroupID: UUID? = nil
     @State private var hoveredFileID: UUID? = nil
     @State private var scanRootName = "Downloads"
+    @AppStorage("duplicateWarnLimit") private var warnLimit: Double = 3000
+    @AppStorage("duplicateBlockLimit") private var blockLimit: Double = 8000
 
     var selectedGroup: DuplicateGroup? {
         guard let id = selectedGroupID else { return nil }
@@ -68,6 +70,8 @@ struct DuplicateFinderView: View {
     var body: some View {
         let _ = scanner.groups
         let _ = scanner.isScanning
+        let _ = scanner.isCounting
+        let _ = scanner.scanPhase
 
         VStack(spacing: 0) {
             toolbar
@@ -536,11 +540,13 @@ struct DuplicateFinderView: View {
     }
 
     private var scanningView: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 12) {
             ProgressView().scaleEffect(1.2)
             Text(scanner.isCounting ? "Counting Files..." : "Scanning for Duplicates...")
                 .font(.title3.bold())
-            Text(scanner.isCounting ? "Checking folder size before scan" : "Comparing files by content in \(scanRootName)")
+            Text(scanner.isCounting
+                 ? "Checking folder size before scan"
+                 : scanner.scanPhase.isEmpty ? "Starting scan in \(scanRootName)..." : scanner.scanPhase)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
         }
@@ -634,7 +640,7 @@ struct DuplicateFinderView: View {
         blockedCount = nil
         Task {
             let count = await scanner.countFiles(in: url)
-            switch ScanGate.check(count) {
+            switch ScanGate.check(count, warn: Int(warnLimit), block: Int(blockLimit)) {
             case .clear:
                 startScan(url: url, name: name)
             case .warning(let n):
@@ -702,6 +708,18 @@ struct DuplicateFinderView: View {
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                     }
+
+                    HStack(spacing: 6) {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.caption)
+                        Text("Warn limit: \(Int(warnLimit).formatted()) files · Block limit: \(Int(blockLimit).formatted()) files · Adjust in Settings")
+                            .font(.caption)
+                    }
+                    .foregroundColor(.secondary.opacity(0.7))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.secondary.opacity(0.08))
+                    .cornerRadius(8)
                 }
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 320)

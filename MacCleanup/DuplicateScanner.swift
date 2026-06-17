@@ -28,9 +28,9 @@ enum ScanGate {
     case warning(Int)
     case blocked(Int)
 
-    static func check(_ count: Int) -> ScanGate {
-        if count > 8000  { return .blocked(count) }
-        if count > 3000  { return .warning(count) }
+    static func check(_ count: Int, warn: Int = 3000, block: Int = 8000) -> ScanGate {
+        if count > block { return .blocked(count) }
+        if count > warn  { return .warning(count) }
         return .clear
     }
 }
@@ -41,6 +41,7 @@ class DuplicateScanner {
     var groups: [DuplicateGroup] = []
     var isScanning = false
     var isCounting = false
+    var scanPhase: String = ""
 
     func countFiles(in root: URL) async -> Int {
         isCounting = true
@@ -54,11 +55,26 @@ class DuplicateScanner {
     func scan(in root: URL) async {
         isScanning = true
         groups = []
-        let found = await Task.detached(priority: .userInitiated) {
-            Self.findDuplicates(in: root)
+        scanPhase = "Pass 1 of 3 — Indexing files"
+        let bySize = await Task.detached(priority: .userInitiated) {
+            Self.groupBySize(in: root)
         }.value
+
+        let candidateCount = bySize.values.filter { $0.count > 1 }.flatMap { $0 }.count
+        scanPhase = "Pass 2 of 3 — Quick hash on \(candidateCount.formatted()) candidates"
+        let byPartial = await Task.detached(priority: .userInitiated) {
+            Self.filterByPartialHash(bySize)
+        }.value
+
+        let deepCount = byPartial.values.filter { $0.urls.count > 1 }.flatMap { $0.urls }.count
+        scanPhase = "Pass 3 of 3 — Deep comparison of \(deepCount.formatted()) files"
+        let found = await Task.detached(priority: .userInitiated) {
+            Self.buildGroups(byPartial)
+        }.value
+
         groups = found.sorted { $0.wastedBytes > $1.wastedBytes }
         isScanning = false
+        scanPhase = ""
     }
 
     func delete(keeping keepURL: URL, in groupID: UUID) async -> Int64 {
@@ -87,15 +103,13 @@ class DuplicateScanner {
         return count
     }
 
-    private static nonisolated func findDuplicates(in root: URL) -> [DuplicateGroup] {
+    private static nonisolated func groupBySize(in root: URL) -> [Int64: [URL]] {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(
             at: root,
             includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey],
             options: [.skipsHiddenFiles, .skipsPackageDescendants]
-        ) else { return [] }
-
-        // Pass 1 — group by size, skip files under 1KB
+        ) else { return [:] }
         var bySize: [Int64: [URL]] = [:]
         for case let url as URL in enumerator {
             guard let vals = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
@@ -103,8 +117,10 @@ class DuplicateScanner {
                   let size = vals.fileSize, size > 1024 else { continue }
             bySize[Int64(size), default: []].append(url)
         }
+        return bySize
+    }
 
-        // Pass 2 — quick 4KB partial hash, eliminate non-matches fast
+    private static nonisolated func filterByPartialHash(_ bySize: [Int64: [URL]]) -> [String: (size: Int64, urls: [URL])] {
         var byQuickHash: [String: (size: Int64, urls: [URL])] = [:]
         for (size, urls) in bySize where urls.count > 1 {
             for url in urls {
@@ -113,17 +129,18 @@ class DuplicateScanner {
                 byQuickHash[key, default: (size, [])].urls.append(url)
             }
         }
+        return byQuickHash
+    }
 
-        // Pass 3 — full SHA256 only on partial-hash matches
+    private static nonisolated func buildGroups(_ byPartial: [String: (size: Int64, urls: [URL])]) -> [DuplicateGroup] {
         var byFullHash: [String: [DuplicateFile]] = [:]
-        for (_, entry) in byQuickHash where entry.urls.count > 1 {
+        for (_, entry) in byPartial where entry.urls.count > 1 {
             for url in entry.urls {
                 guard let hash = sha256(url) else { continue }
                 let file = DuplicateFile(url: url, size: entry.size)
                 byFullHash[hash, default: []].append(file)
             }
         }
-
         return byFullHash
             .filter { $0.value.count > 1 }
             .map { DuplicateGroup(hash: $0.key, files: $0.value) }
